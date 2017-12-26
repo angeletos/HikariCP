@@ -44,11 +44,12 @@ import com.zaxxer.hikari.util.FastList;
  */
 public abstract class ProxyConnection implements Connection
 {
-   static final int DIRTY_BIT_READONLY   = 0b00001;
-   static final int DIRTY_BIT_AUTOCOMMIT = 0b00010;
-   static final int DIRTY_BIT_ISOLATION  = 0b00100;
-   static final int DIRTY_BIT_CATALOG    = 0b01000;
-   static final int DIRTY_BIT_NETTIMEOUT = 0b10000;
+   static final int DIRTY_BIT_READONLY   = 0b000001;
+   static final int DIRTY_BIT_AUTOCOMMIT = 0b000010;
+   static final int DIRTY_BIT_ISOLATION  = 0b000100;
+   static final int DIRTY_BIT_CATALOG    = 0b001000;
+   static final int DIRTY_BIT_NETTIMEOUT = 0b010000;
+   static final int DIRTY_BIT_SCHEMA     = 0b100000;
 
    private static final Logger LOGGER;
    private static final Set<String> ERROR_STATES;
@@ -70,12 +71,14 @@ public abstract class ProxyConnection implements Connection
    private int networkTimeout;
    private int transactionIsolation;
    private String dbcatalog;
+   private String dbschema;
 
    // static initializer
    static {
       LOGGER = LoggerFactory.getLogger(ProxyConnection.class);
 
       ERROR_STATES = new HashSet<>();
+      ERROR_STATES.add("0A000"); // FEATURE UNSUPPORTED
       ERROR_STATES.add("57P01"); // ADMIN SHUTDOWN
       ERROR_STATES.add("57P02"); // CRASH SHUTDOWN
       ERROR_STATES.add("57P03"); // CANNOT CONNECT NOW
@@ -117,6 +120,11 @@ public abstract class ProxyConnection implements Connection
    final String getCatalogState()
    {
       return dbcatalog;
+   }
+
+   final String getSchemaState()
+   {
+      return dbschema;
    }
 
    final int getTransactionIsolationState()
@@ -192,7 +200,7 @@ public abstract class ProxyConnection implements Connection
    }
 
    @SuppressWarnings("EmptyTryBlock")
-   private void closeStatements()
+   private synchronized void closeStatements()
    {
       final int size = openStatements.size();
       if (size > 0) {
@@ -209,9 +217,7 @@ public abstract class ProxyConnection implements Connection
             }
          }
 
-         synchronized (this) {
-            openStatements.clear();
-         }
+         openStatements.clear();
       }
    }
 
@@ -426,6 +432,15 @@ public abstract class ProxyConnection implements Connection
       delegate.setNetworkTimeout(executor, milliseconds);
       networkTimeout = milliseconds;
       dirtyBits |= DIRTY_BIT_NETTIMEOUT;
+   }
+
+   /** {@inheritDoc} */
+   @Override
+   public void setSchema(String schema) throws SQLException
+   {
+      delegate.setSchema(schema);
+      dbschema = schema;
+      dirtyBits |= DIRTY_BIT_SCHEMA;
    }
 
    /** {@inheritDoc} */

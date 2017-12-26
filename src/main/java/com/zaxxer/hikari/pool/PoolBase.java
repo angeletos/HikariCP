@@ -16,6 +16,7 @@
 
 package com.zaxxer.hikari.pool;
 
+import static com.zaxxer.hikari.pool.ProxyConnection.DIRTY_BIT_SCHEMA;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
@@ -68,7 +69,7 @@ abstract class PoolBase
    long validationTimeout;
    IMetricsTrackerDelegate metricsTracker;
 
-   private static final String[] RESET_STATES = {"readOnly", "autoCommit", "isolation", "catalog", "netTimeout"};
+   private static final String[] RESET_STATES = {"readOnly", "autoCommit", "isolation", "catalog", "netTimeout", "schema"};
    private static final int UNINITIALIZED = -1;
    private static final int TRUE = 1;
    private static final int FALSE = 0;
@@ -82,6 +83,7 @@ abstract class PoolBase
    private DataSource dataSource;
 
    private final String catalog;
+   private final String schema;
    private final boolean isReadOnly;
    private final boolean isAutoCommit;
 
@@ -97,6 +99,7 @@ abstract class PoolBase
 
       this.networkTimeout = UNINITIALIZED;
       this.catalog = config.getCatalog();
+      this.schema = config.getSchema();
       this.isReadOnly = config.isReadOnly();
       this.isAutoCommit = config.isAutoCommit();
       this.transactionIsolation = UtilityElf.getTransactionIsolation(config.getTransactionIsolation());
@@ -151,15 +154,15 @@ abstract class PoolBase
          try {
             setNetworkTimeout(connection, validationTimeout);
 
-            final long validationSeconds = (int) Math.max(1000L, validationTimeout) / 1000;
+            final int validationSeconds = (int) Math.max(1000L, validationTimeout) / 1000;
 
             if (isUseJdbc4Validation) {
-               return connection.isValid((int) validationSeconds);
+               return connection.isValid(validationSeconds);
             }
 
             try (Statement statement = connection.createStatement()) {
                if (isNetworkTimeoutSupported != TRUE) {
-                  setQueryTimeout(statement, (int) validationSeconds);
+                  setQueryTimeout(statement, validationSeconds);
                }
 
                statement.execute(config.getConnectionTestQuery());
@@ -230,6 +233,11 @@ abstract class PoolBase
          resetBits |= DIRTY_BIT_NETTIMEOUT;
       }
 
+      if ((dirtyBits & DIRTY_BIT_SCHEMA) != 0 && schema != null && !schema.equals(proxyConnection.getSchemaState())) {
+         connection.setSchema(schema);
+         resetBits |= DIRTY_BIT_SCHEMA;
+      }
+
       if (resetBits != 0 && LOGGER.isDebugEnabled()) {
          LOGGER.debug("{} - Reset ({}) on connection {}", poolName, stringFromResetBits(resetBits), connection);
       }
@@ -239,6 +247,15 @@ abstract class PoolBase
    {
       if (netTimeoutExecutor instanceof ThreadPoolExecutor) {
          ((ThreadPoolExecutor) netTimeoutExecutor).shutdownNow();
+      }
+   }
+
+   long getLoginTimeout()
+   {
+      try {
+         return (dataSource != null) ? dataSource.getLoginTimeout() : SECONDS.toSeconds(5);
+      } catch (SQLException e) {
+         return SECONDS.toSeconds(5);
       }
    }
 
@@ -410,6 +427,10 @@ abstract class PoolBase
 
          if (catalog != null) {
             connection.setCatalog(catalog);
+         }
+
+         if (schema != null) {
+            connection.setSchema(schema);
          }
 
          executeSql(connection, config.getConnectionInitSql(), true);
