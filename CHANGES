@@ -1,8 +1,100 @@
 HikariCP Changes
 
+Changes in 3.2.0
+
+ * check connection closed condition before attempting to set network timeout to avoid spurios exceptions
+   in the log.
+
+ * updated validation failure message to include recommendation to check maxLifetime value.
+
+ * fixed 1141 do not throw SQLException when calling isClosed() or close() on a already closed unwrapped
+   Connection, as per JDBC specification.
+
+ * fixed 1137 support changing user/password at runtime for DriverDataSource-wrapped driver connections.
+
+ * fixed 1136 log loaded driver when using jdbcUrl.
+
+ * pull 1135 extract sealed pool check into independent method.
+
+ * fixed 1126 correct error in JavaDoc for HikariConfig.setInitializationFailTimeout().
+
+ * fixed 1114 removed unreachable code.
+
+Changes in 3.1.0
+
+ * Add get/setCatalog() to HikariConfigMXBean, allowing the catalog to be changed at runtime.
+   The catalog should only be changed while the pool is suspended, and after evicting existing
+   connections via HikariPoolMXBean.softEvictConnections().
+
+Changes in 3.0.0
+
+ * Removed previously deprecated methods;
+     HikariConfig.copyState()
+     HikariConfig.getScheduledExecutorService()
+     HikariConfig.setScheduledExecutorService()
+     HikariConfig.isInitializationFailFast()
+     HikariConfig.setInitializationFailFast()
+     HikariConfig.isJdbc4ConnectionTest()
+     HikariConfig.setJdbc4ConnectionTest()
+
+     HikariDataSource.copyState()
+     HikariDataSource.getScheduledExecutorService()
+     HikariDataSource.setScheduledExecutorService()
+     HikariDataSource.suspendPool()
+     HikariDataSource.resumePool()
+     HikariDataSource.shutdown()
+     HikariDataSource.isInitializationFailFast()
+     HikariDataSource.setInitializationFailFast()
+     HikariDataSource.isJdbc4ConnectionTest()
+     HikariDataSource.setJdbc4ConnectionTest()
+
+ * pull 1110 add currently configured maxConnections and minConnections to pool metrics.
+
+ * pull 1100 remove hard-coded percentiles for Micrometer metrics.
+
+ * pull 1108 maintain a strong reference to PoolStats for Micrometer gauges to prevent premature
+   garbage collection.
+
+ * pull 1098 update to Micrometer 1.0.0.
+
+Changes in 2.7.8
+
+ * fixed 1095 fix breakage caused by sealed configuration with respect to special handling for the
+   metricsRegistry and metricsTrackerFactory properties, which are allowed to be altered *once*
+   after the pool has started (even after the configuration is sealed).
+
+ * pull 1089 allowing anonymous subclasses of MetricRegistry. Changed checks for metrics libraries
+   from a class name check to the assignableFrom() API.
+
+Changes in 2.7.7
+
+ * fixed issue whereby configuration through the HikariConfigMXBean could not be altered due
+   to the sealed configuration change introduced in 2.7.5.
+
+Changes in 2.7.6
+
+ * issue 1064 fixed regression where HikariConfig.copyStateTo() propagated the "sealed" status
+   of the source configuration to the target configuration -- preventing further changes.
+
+Changes in 2.7.5
+
+ * issue 1061/pull 1062 fixed compatibility issue with requery.io caused by HikariCP's
+   proxied Statement class returning a driver-native ResultSet instance from getGeneratedKeys()
+   instead of returning a HikariCP proxied ResultSet.
+
+ * pull 1058 enable quantiles on Prometheus metrics.
+
+ * pull 1055 fixed incorrect JavaDoc for HikariConfigMXBean.getMinimumIdle() method.
+
+ * issue 1045/pull 1047 added Automatic-Module-Name to jar manifest to ensure that the Java 8
+   library plays well with the Java 9 module system.
+
+ * introduced the concept of a "sealed" configuration.  Once a pool is started, attempts to
+   alter its configuration outside of the HikariConfigMXBean will result in an IllegalStateException.
+
 Changes in 2.7.4
 
- * pull 1026 Added a support for SQL Server's specific isolation level (SNAPSHOT).
+ * pull 1026 added support for SQL Server's specific isolation level (SNAPSHOT).
 
  * issue 926/pull 1022 HikariJNDIFactory should not throw a NamingException or else
    cascading to other object factories cannot occur.

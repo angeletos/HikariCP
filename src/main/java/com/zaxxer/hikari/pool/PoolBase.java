@@ -16,10 +16,21 @@
 
 package com.zaxxer.hikari.pool;
 
-import static com.zaxxer.hikari.pool.ProxyConnection.DIRTY_BIT_SCHEMA;
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
-import static java.util.concurrent.TimeUnit.SECONDS;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.metrics.IMetricsTracker;
+import com.zaxxer.hikari.pool.HikariPool.PoolInitializationException;
+import com.zaxxer.hikari.util.DriverDataSource;
+import com.zaxxer.hikari.util.PropertyElf;
+import com.zaxxer.hikari.util.UtilityElf;
+import com.zaxxer.hikari.util.UtilityElf.DefaultThreadFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import javax.management.MBeanServer;
+import javax.management.ObjectName;
+import javax.naming.InitialContext;
+import javax.naming.NamingException;
+import javax.sql.DataSource;
 import java.lang.management.ManagementFactory;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -32,42 +43,24 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicReference;
 
-import javax.management.MBeanServer;
-import javax.management.ObjectName;
-import javax.naming.InitialContext;
-import javax.naming.NamingException;
-import javax.sql.DataSource;
-
-import com.zaxxer.hikari.pool.HikariPool.PoolInitializationException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.metrics.IMetricsTracker;
-import com.zaxxer.hikari.util.DriverDataSource;
-import com.zaxxer.hikari.util.PropertyElf;
-import com.zaxxer.hikari.util.UtilityElf;
-import com.zaxxer.hikari.util.UtilityElf.DefaultThreadFactory;
-
-import static com.zaxxer.hikari.pool.ProxyConnection.DIRTY_BIT_AUTOCOMMIT;
-import static com.zaxxer.hikari.pool.ProxyConnection.DIRTY_BIT_CATALOG;
-import static com.zaxxer.hikari.pool.ProxyConnection.DIRTY_BIT_ISOLATION;
-import static com.zaxxer.hikari.pool.ProxyConnection.DIRTY_BIT_NETTIMEOUT;
-import static com.zaxxer.hikari.pool.ProxyConnection.DIRTY_BIT_READONLY;
-import static com.zaxxer.hikari.util.ClockSource.currentTime;
-import static com.zaxxer.hikari.util.ClockSource.elapsedMillis;
-import static com.zaxxer.hikari.util.ClockSource.elapsedNanos;
+import static com.zaxxer.hikari.pool.ProxyConnection.*;
+import static com.zaxxer.hikari.util.ClockSource.*;
 import static com.zaxxer.hikari.util.UtilityElf.createInstance;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.concurrent.TimeUnit.SECONDS;
 
 abstract class PoolBase
 {
    private final Logger LOGGER = LoggerFactory.getLogger(PoolBase.class);
 
-   protected final HikariConfig config;
+   public final HikariConfig config;
+   IMetricsTrackerDelegate metricsTracker;
+
+   protected volatile String catalog;
    protected final String poolName;
+
    long connectionTimeout;
    long validationTimeout;
-   IMetricsTrackerDelegate metricsTracker;
 
    private static final String[] RESET_STATES = {"readOnly", "autoCommit", "isolation", "catalog", "netTimeout", "schema"};
    private static final int UNINITIALIZED = -1;
@@ -82,7 +75,6 @@ abstract class PoolBase
    private Executor netTimeoutExecutor;
    private DataSource dataSource;
 
-   private final String catalog;
    private final String schema;
    private final boolean isReadOnly;
    private final boolean isAutoCommit;
@@ -135,8 +127,12 @@ abstract class PoolBase
       if (connection != null) {
          try {
             LOGGER.debug("{} - Closing connection {}: {}", poolName, connection, closureReason);
+
             try {
                setNetworkTimeout(connection, SECONDS.toMillis(15));
+            }
+            catch (SQLException e) {
+               // ignore
             }
             finally {
                connection.close(); // continue with the close even if setNetworkTimeout() throws
@@ -180,7 +176,8 @@ abstract class PoolBase
       }
       catch (Exception e) {
          lastConnectionFailure.set(e);
-         LOGGER.warn("{} - Failed to validate connection {} ({})", poolName, connection, e.getMessage());
+         LOGGER.warn("{} - Failed to validate connection {} ({}). Possibly consider using a shorter maxLifetime value.",
+                     poolName, connection, e.getMessage());
          return false;
       }
    }
@@ -416,8 +413,13 @@ abstract class PoolBase
             setNetworkTimeout(connection, validationTimeout);
          }
 
-         connection.setReadOnly(isReadOnly);
-         connection.setAutoCommit(isAutoCommit);
+         if (connection.isReadOnly() != isReadOnly) {
+            connection.setReadOnly(isReadOnly);
+         }
+
+         if (connection.getAutoCommit() != isAutoCommit) {
+            connection.setAutoCommit(isAutoCommit);
+         }
 
          checkDriverSupport(connection);
 

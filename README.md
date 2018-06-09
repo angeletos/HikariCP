@@ -13,20 +13,12 @@ Fast, simple, reliable.  HikariCP is a "zero-overhead" production ready JDBC con
 
 ----------------------------------------------------
 
-_Java 8 maven artifact:_
+_Java 8/9 maven artifact:_
 ```xml
     <dependency>
         <groupId>com.zaxxer</groupId>
         <artifactId>HikariCP</artifactId>
-        <version>2.7.4</version>
-    </dependency>
-```
-_Java 9 Early Access maven artifact:_
-```xml
-    <dependency>
-        <groupId>com.zaxxer</groupId>
-        <artifactId>HikariCP-java9ea</artifactId>
-        <version>2.6.1</version>
+        <version>3.1.0</version>
     </dependency>
 ```
 _Java 7 maven artifact (*maintenance mode*):_
@@ -107,7 +99,7 @@ HikariCP comes with *sane* defaults that perform well in most deployments withou
 
 <sup>&#128206;</sup>&nbsp;*HikariCP uses milliseconds for all time values.*
 
-&#128680;&nbsp;HikariCP relies on accurate timers for both performance and reliability. It is *imperative* that your server is synchronized with a time-source such as an NTP server. *Especially* if your server is running within a virtual machine.  Why? [Read more here](https://dba.stackexchange.com/questions/171002/choice-of-connection-pooling-library-for-vm-deploys/171020). **Do not rely on hypervisor settings to "synchronize" the clock of the virtual machine. Configure time-source synchronization inside the virtual machine.**   If you come asking for support on an issue that turns out to be caused by lack time synchronization, you will be taunted publicly on Twitter.
+&#128680;&nbsp;HikariCP relies on accurate timers for both performance and reliability. It is *imperative* that your server is synchronized with a time-source such as an NTP server. *Especially* if your server is running within a virtual machine.  Why? [Read more here](https://dba.stackexchange.com/a/171020). **Do not rely on hypervisor settings to "synchronize" the clock of the virtual machine. Configure time-source synchronization inside the virtual machine.**   If you come asking for support on an issue that turns out to be caused by lack time synchronization, you will be taunted publicly on Twitter.
 
 ##### Essentials
 
@@ -168,18 +160,18 @@ available, a SQLException will be thrown.  Lowest acceptable connection timeout 
 &#8986;``idleTimeout``<br/>
 This property controls the maximum amount of time that a connection is allowed to sit idle in the
 pool.  **This setting only applies when ``minimumIdle`` is defined to be less than ``maximumPoolSize``.**
-Whether a connection is retired as idle or not is subject to a maximum variation of +30
-seconds, and average variation of +15 seconds.  A connection will never be retired as idle *before*
-this timeout.  Once the pool reaches ``minimumIdle`` connections, connections will no longer be
-retired, even if idle.  A value of 0 means that idle connections are never removed from the pool.  The minimum
-allowed value is 10000ms (10 seconds).
+Idle connections will *not* be retired once the pool reaches ``minimumIdle`` connections.  Whether a
+connection is retired as idle or not is subject to a maximum variation of +30 seconds, and average 
+variation of +15 seconds.  A connection will never be retired as idle *before* this timeout.  A value
+of 0 means that idle connections are never removed from the pool.  The minimum allowed value is 10000ms
+(10 seconds).
 *Default: 600000 (10 minutes)*
 
 &#8986;``maxLifetime``<br/>
 This property controls the maximum lifetime of a connection in the pool.  An in-use connection will
 never be retired, only when it is closed will it then be removed.  On a connection-by-connection
 basis, minor negative attenuation is applied to avoid mass-extinction in the pool.  **We strongly recommend
-setting this value, and it should be at least 30 seconds less than any database or infrastructure imposed
+setting this value, and it should be several seconds shorter than any database or infrastructure imposed
 connection time limit.**  A value of 0 indicates no maximum lifetime (infinite lifetime), subject of
 course to the ``idleTimeout`` setting.
 *Default: 1800000 (30 minutes)*
@@ -363,8 +355,9 @@ and will negatively impact your application performance compared to driver-provi
 
 Like Statement caching, most major database vendors support statement logging through
 properties of their own driver.  This includes Oracle, MySQL, Derby, MSSQL, and others.  Some
-even support slow query logging.  For those few databases that do not support it, [log4jdbc](https://github.com/arthurblake/log4jdbc) or [jdbcdslog-exp](https://code.google.com/p/jdbcdslog-exp/) are
-good options.
+even support slow query logging.  For those few databases that do not support it, several options are available.
+We have received [a report that p6spy works well](https://github.com/brettwooldridge/HikariCP/issues/57#issuecomment-354647631),
+and also note the availability of [log4jdbc](https://github.com/arthurblake/log4jdbc) and [jdbcdslog-exp](https://code.google.com/p/jdbcdslog-exp/).
 
 ----------------------------------------------------
 
@@ -440,7 +433,7 @@ Here is a list of JDBC *DataSource* classes for popular databases:
 | Database         | Driver       | *DataSource* class |
 |:---------------- |:------------ |:-------------------|
 | Apache Derby     | Derby        | org.apache.derby.jdbc.ClientDataSource |
-| Firebird         | Jaybird      | org.firebirdsql.pool.FBSimpleDataSource |
+| Firebird         | Jaybird      | org.firebirdsql.ds.FBSimpleDataSource |
 | H2               | H2           | org.h2.jdbcx.JdbcDataSource |
 | HSQLDB           | HSQLDB       | org.hsqldb.jdbc.JDBCDataSource |
 | IBM DB2          | IBM JCC      | com.ibm.db2.jcc.DB2SimpleDataSource |

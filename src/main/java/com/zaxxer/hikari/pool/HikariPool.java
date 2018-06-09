@@ -57,6 +57,7 @@ import static com.zaxxer.hikari.util.ConcurrentBag.IConcurrentBagEntry.STATE_IN_
 import static com.zaxxer.hikari.util.ConcurrentBag.IConcurrentBagEntry.STATE_NOT_IN_USE;
 import static com.zaxxer.hikari.util.UtilityElf.createThreadPoolExecutor;
 import static com.zaxxer.hikari.util.UtilityElf.quietlySleep;
+import static com.zaxxer.hikari.util.UtilityElf.safeIsAssignableFrom;
 import static java.util.Collections.unmodifiableCollection;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -71,11 +72,11 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
 {
    private final Logger LOGGER = LoggerFactory.getLogger(HikariPool.class);
 
-   private static final int POOL_NORMAL = 0;
-   private static final int POOL_SUSPENDED = 1;
-   private static final int POOL_SHUTDOWN = 2;
+   public static final int POOL_NORMAL = 0;
+   public static final int POOL_SUSPENDED = 1;
+   public static final int POOL_SHUTDOWN = 2;
 
-   private volatile int poolState;
+   public volatile int poolState;
 
    private final long ALIVE_BYPASS_WINDOW_MS = Long.getLong("com.zaxxer.hikari.aliveBypassWindowMs", MILLISECONDS.toMillis(500));
    private final long HOUSEKEEPING_PERIOD_MS = Long.getLong("com.zaxxer.hikari.housekeeping.periodMs", SECONDS.toMillis(30));
@@ -134,6 +135,13 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
       this.leakTaskFactory = new ProxyLeakTaskFactory(config.getLeakDetectionThreshold(), houseKeepingExecutorService);
 
       this.houseKeeperTask = houseKeepingExecutorService.scheduleWithFixedDelay(new HouseKeeper(), 100L, HOUSEKEEPING_PERIOD_MS, MILLISECONDS);
+
+      if (Boolean.getBoolean("com.zaxxer.hikari.blockUntilFilled") && config.getInitializationFailTimeout() > 1) {
+         final long startTime = currentTime();
+         while (elapsedMillis(startTime) < config.getInitializationFailTimeout() && getTotalConnections() < config.getMinimumIdle()) {
+            quietlySleep(MILLISECONDS.toMillis(100));
+         }
+      }
    }
 
    /**
@@ -272,10 +280,10 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
     */
    public void setMetricRegistry(Object metricRegistry)
    {
-      if (metricRegistry != null && metricRegistry.getClass().getName().contains("MetricRegistry")) {
+      if (metricRegistry != null && safeIsAssignableFrom(metricRegistry, "com.codahale.metrics.MetricRegistry")) {
          setMetricsTrackerFactory(new CodahaleMetricsTrackerFactory((MetricRegistry) metricRegistry));
       }
-      else if (metricRegistry != null && metricRegistry.getClass().getName().contains("MeterRegistry")) {
+      else if (metricRegistry != null && safeIsAssignableFrom(metricRegistry, "io.micrometer.core.instrument.MeterRegistry")) {
          setMetricsTrackerFactory(new MicrometerMetricsTrackerFactory((MeterRegistry) metricRegistry));
       }
       else {
@@ -637,6 +645,8 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
             this.idleConnections = HikariPool.this.getIdleConnections();
             this.totalConnections = HikariPool.this.getTotalConnections();
             this.activeConnections = HikariPool.this.getActiveConnections();
+            this.maxConnections = config.getMaximumPoolSize();
+            this.minConnections = config.getMinimumIdle();
          }
       };
    }
@@ -689,7 +699,7 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
       }
 
       @Override
-      public Boolean call() throws Exception
+      public Boolean call()
       {
          long sleepBackoff = 250L;
          while (poolState == POOL_NORMAL && shouldCreateAnotherConnection()) {
@@ -734,10 +744,11 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
       public void run()
       {
          try {
-            // refresh timeouts in case they changed via MBean
+            // refresh values in case they changed via MBean
             connectionTimeout = config.getConnectionTimeout();
             validationTimeout = config.getValidationTimeout();
             leakTaskFactory.updateLeakDetectionThreshold(config.getLeakDetectionThreshold());
+            catalog = (config.getCatalog() != null && !config.getCatalog().equals(catalog)) ? config.getCatalog() : catalog;
 
             final long idleTimeout = config.getIdleTimeout();
             final long now = currentTime();
